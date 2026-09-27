@@ -39,9 +39,11 @@
 // @description:vi     Nâng cao hiệu suất cờ vua của bạn với hệ thống phân tích nước đi và hỗ trợ chiến thuật hiện đại
 // @description:uk     Покращуйте свою шахову гру з використанням передової системи аналізу ходів в режимі реального часу та стратегічної підтримки
 // @description:ru     Слава Украине
-// @homepageURL https://psyyke.github.io/A.C.A.S
-// @supportURL  https://github.com/Psyyke/A.C.A.S/tree/main#why-doesnt-it-work
-// @match       https://psyyke.github.io/A.C.A.S/*
+// @homepageURL https://system8510.github.io/projetoxdrz/
+// @supportURL  https://github.com/system8510/projetoxdrz/issues
+// @updateURL   https://system8510.github.io/projetoxdrz/acas.user.js
+// @downloadURL https://system8510.github.io/projetoxdrz/acas.user.js
+// @match       https://*.github.io/projetoxdrz/*
 // @match       http://localhost/*
 // @match       https://www.chess.com/*
 // @match       https://lichess.org/*
@@ -117,9 +119,35 @@ DANGER ZONE - DO NOT PROCEED IF YOU DON'T KNOW WHAT YOU'RE DOING*/
 Code below this point runs on any site, including the GUI.
 */
 
+function getInstalledBackend() {
+    const scriptInfo = typeof GM_info === 'object' ? GM_info : {};
+    const possibleScriptUrls = [
+        scriptInfo?.script?.downloadURL,
+        scriptInfo?.script?.updateURL,
+        scriptInfo?.scriptUpdateURL,
+        scriptInfo?.script?.fileURL
+    ];
+
+    for(const scriptUrl of possibleScriptUrls) {
+        try {
+            const url = new URL(scriptUrl);
+
+            if(url.hostname.endsWith('.github.io') && url.pathname.endsWith('/acas.user.js')) {
+                return {
+                    'host': url.host,
+                    'path': url.pathname.slice(0, -'acas.user.js'.length)
+                };
+            }
+        } catch(_) {}
+    }
+
+    return null;
+}
+
+const installedBackend = getInstalledBackend();
 const backendConfig = {
-    'hosts': { 'prod': 'psyyke.github.io', 'dev': 'localhost' },
-    'path': '/A.C.A.S/'
+    'hosts': { 'prod': installedBackend?.host || 'system8510.github.io', 'dev': 'localhost' },
+    'path': installedBackend?.path || '/projetoxdrz/'
 };
 
 const currentBackendUrlKey = 'currentBackendURL';
@@ -3711,7 +3739,7 @@ addSupportedChessSite('app.edchess.io', {
 });
 
 addSupportedChessSite([
-    backendConfig?.hosts?.prod || 'psyyke.github.io',
+    backendConfig?.hosts?.prod || 'system8510.github.io',
     backendConfig?.hosts?.dev || 'localhost'
 ], {
     'boardElem': obj => {
