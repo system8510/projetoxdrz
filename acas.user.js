@@ -81,7 +81,7 @@
 // @require     https://update.greasyfork.org/scripts/470418/CommLinkjs.js?acasv=2
 // @require     https://update.greasyfork.org/scripts/470417/UniversalBoardDrawerjs.js?acasv=2
 // @icon        https://raw.githubusercontent.com/Psyyke/A.C.A.S/main/assets/images/logo-192.png
-// @version     2.4.9.2
+// @version     2.4.9.3
 // @namespace   HKR
 // @author      HKR
 // @license     GPL-3.0
@@ -411,7 +411,8 @@ const blacklistedURLs = [
 ];
 
 const configKeys = Object.freeze([
-    'engineElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion', 'arrowOpacity',
+    'engineElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion',
+    'humanMoveTimeControl', 'arrowOpacity',
     'displayMovesOnExternalSite', 'showMoveGhost', 'showOpponentMoveGuess',
     'showOpponentMoveGuessConstantly', 'onlyShowTopMoves', 'maxMovetime',
     'chessVariant', 'chessEngine', 'lc0Weight',
@@ -754,19 +755,26 @@ function calculateAdaptiveMoveDifficulty(markings, pieceAmount) {
     );
 }
 
-function calculateRecommendedThinkTime(engineElo, moveDifficulty) {
+function calculateRecommendedThinkTime(engineElo, moveDifficulty, timeControlMinutes = 10) {
     const elo = clampNumber(Number(engineElo) || 1500, 600, 2600);
     const difficulty = clampNumber(Number(moveDifficulty) || 0, 0, 1);
     const skill = (elo - 600) / 2000;
 
-    const routineTime = 550 + (1 - skill) * 2050;
-    const complexityTime = Math.pow(difficulty, 1.35) * (7000 - skill * 2800);
-    const criticalPause = difficulty > 0.72
-        ? 900 + (1 - skill) * 1900 + (difficulty - 0.72) * 3000
-        : 0;
+    const timingPresets = {
+        3:  { min: 500,  fast: 550,  slow: 2200,  complexity: 7000,  critical: 4000,  max: 12000 },
+        5:  { min: 700,  fast: 800,  slow: 3000,  complexity: 10000, critical: 7000,  max: 20000 },
+        10: { min: 1000, fast: 1500, slow: 5000,  complexity: 17000, critical: 14000, max: 40000 },
+        15: { min: 1200, fast: 2000, slow: 7000,  complexity: 25000, critical: 22000, max: 60000 },
+        30: { min: 1500, fast: 3000, slow: 10000, complexity: 38000, critical: 35000, max: 90000 }
+    };
+    const preset = timingPresets[Number(timeControlMinutes)] || timingPresets[10];
+    const routineTime = preset.fast + (1 - skill) * (preset.slow - preset.fast);
+    const complexityTime = Math.pow(difficulty, 1.55) * preset.complexity * (1 - skill * 0.25);
+    const criticality = clampNumber((difficulty - 0.7) / 0.3, 0, 1);
+    const criticalPause = Math.pow(criticality, 1.15) * preset.critical * (1 - skill * 0.2);
     const total = (routineTime + complexityTime + criticalPause) * humanTimeSuggestionVariation;
 
-    return Math.round(clampNumber(total, 700, 15000));
+    return Math.round(clampNumber(total, preset.min, preset.max));
 }
 
 function getMoveDifficultyLabel(difficulty) {
@@ -842,8 +850,9 @@ function renderHumanMoveTimeSuggestion(markings) {
     }
 
     const engineElo = Number(getConfigValue(configKeys.engineElo, profileID)) || 1500;
+    const timeControlMinutes = Number(getConfigValue(configKeys.humanMoveTimeControl, profileID)) || 10;
     const difficulty = calculateAdaptiveMoveDifficulty(filteredMarkings, getPieceAmount());
-    const totalMs = calculateRecommendedThinkTime(engineElo, difficulty);
+    const totalMs = calculateRecommendedThinkTime(engineElo, difficulty, timeControlMinutes);
     const deadline = (lastMoveRequestTime || Date.now()) + totalMs;
     const shadow = getHumanTimeSuggestionElements();
     const card = shadow.querySelector('.card');
@@ -854,7 +863,7 @@ function renderHumanMoveTimeSuggestion(markings) {
 
     humanTimeSuggestionHost.style.display = 'block';
     timeElem.textContent = formatSeconds(totalMs);
-    detailsElem.textContent = `ELO ${engineElo} • ${getMoveDifficultyLabel(difficulty)}`;
+    detailsElem.textContent = `${timeControlMinutes} min • ELO ${engineElo} • ${getMoveDifficultyLabel(difficulty)}`;
 
     const updateCountdown = () => {
         const stillEnabled = getConfigValue(configKeys.humanMoveTimeSuggestion, profileID);

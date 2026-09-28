@@ -110,6 +110,7 @@
         "webhookIncludeRawUci": ["UCI bruto do motor", "Enviar linhas UCI brutas do motor"],
         "moveSuggestionAmount": ["Sugestões de movimento", "Quantas setas serão mostradas"],
         "humanMoveTimeSuggestion": ["Tempo recomendado para pensar", "Mostra uma sugestão de espera sem mover nenhuma peça"],
+        "humanMoveTimeControl": ["Duração da partida", "Escolha o tempo inicial do relógio"],
         "maxMovetime": ["Tempo máximo de movimento (ms)", "1000ms é 1 segundo"],
         "arrowOpacity": ["Opacidade das setas de movimento (1 - 100%)", "Mude a opacidade das setas de movimento"],
         "autoMove": ["Movimento Automático", "Para Chess.com. Use somente contra bots"],

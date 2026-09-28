@@ -17,7 +17,8 @@ const logEngineMessages = false,
       debugLogsEnabled = false;
 
 const configKeys = Object.freeze([
-    'engineElo', 'engineEnemyElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion', 'arrowOpacity',
+    'engineElo', 'engineEnemyElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion',
+    'humanMoveTimeControl', 'arrowOpacity',
     'displayMovesOnExternalSite', 'showMoveGhost', 'showOpponentMoveGuess',
     'showOpponentMoveGuessConstantly', 'onlyShowTopMoves', 'maxMovetime',
     'chessVariant', 'chessEngine', 'useExternalChessEngine', 'lc0Weight',

@@ -447,6 +447,17 @@
 								<div class="input-subtitle">Show a suggested waiting time without moving any piece</div></div><div class="checkbox-container">
 								<input type="checkbox" data-key="humanMoveTimeSuggestion" data-default-value="false"><div class="checkbox-fill">✔</div></div>
 							</div>
+							<div class="dropdown-input custom-input"><div><div class="input-title">Game Duration</div>
+								<div class="input-subtitle">Choose the initial clock time</div></div><div class="dropdown-input-container">
+								<input type="text" additional-type="dropdown" data-key="humanMoveTimeControl" data-default-value="10" placeholder="10 minutes"><div class="dropdown-icon"></div>
+								<div class="dropdown-list-container">
+									<div class="dropdown-item" data-value="3">3 minutes</div>
+									<div class="dropdown-item" data-value="5">5 minutes</div>
+									<div class="dropdown-item" data-value="10">10 minutes</div>
+									<div class="dropdown-item" data-value="15">15 minutes</div>
+									<div class="dropdown-item" data-value="30">30 minutes</div>
+								</div>
+							</div></div>
                             <div class="textfield-input custom-input"><div><div class="input-title">Move Delay (ms)</div>
 								<div class="input-subtitle">Show the move suggestions after this time</div></div>
 								<input type="textfield" data-key="moveDisplayDelay" data-default-value="0" data-between="0-99999">

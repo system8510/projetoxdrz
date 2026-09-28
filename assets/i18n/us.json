@@ -112,6 +112,7 @@
         "webhookIncludeRawUci": ["Engine UCI as-is", "Send the engine UCI lines without modification"],
         "moveSuggestionAmount": ["Move suggestions", "How many move suggestions will show up"],
         "humanMoveTimeSuggestion": ["Recommended Thinking Time", "Show a suggested waiting time without moving any piece"],
+        "humanMoveTimeControl": ["Game Duration", "Choose the initial clock time"],
         "maxMovetime": ["Max Movetime (ms)", "1000ms is 1 second"],
         "arrowOpacity": ["Move Opacity (1 - 100%)", "Change the opacity of the shown moves"],
         "autoMove": ["Auto Move", "For Chess.com. Use only against bots"],
