@@ -80,9 +80,8 @@
 // @require     https://update.greasyfork.org/scripts/534637/LegacyGMjs.js?acasv=2
 // @require     https://update.greasyfork.org/scripts/470418/CommLinkjs.js?acasv=2
 // @require     https://update.greasyfork.org/scripts/470417/UniversalBoardDrawerjs.js?acasv=2
-// @require     https://system8510.github.io/projetoxdrz/userscript-components/AutomaticMove.js?v=2.4.9.1
 // @icon        https://raw.githubusercontent.com/Psyyke/A.C.A.S/main/assets/images/logo-192.png
-// @version     2.4.9.1
+// @version     2.4.9.2
 // @namespace   HKR
 // @author      HKR
 // @license     GPL-3.0
@@ -412,7 +411,7 @@ const blacklistedURLs = [
 ];
 
 const configKeys = Object.freeze([
-    'engineElo', 'moveSuggestionAmount', 'arrowOpacity',
+    'engineElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion', 'arrowOpacity',
     'displayMovesOnExternalSite', 'showMoveGhost', 'showOpponentMoveGuess',
     'showOpponentMoveGuessConstantly', 'onlyShowTopMoves', 'maxMovetime',
     'chessVariant', 'chessEngine', 'lc0Weight',
@@ -421,7 +420,7 @@ const configKeys = Object.freeze([
     'ttsVoiceSpeed', 'chessEngineProfile', 'primaryArrowColorHex',
     'secondaryArrowColorHex', 'opponentArrowColorHex', 'bookMoveColorHex',
     'bookMoveOpacity', 'reverseSide', 'engineEnabled', 'autoMove', 'autoMoveLegit',
-    'autoMoveRandom', 'autoMoveAfterUser', 'autoMoveHumanTiming', 'legitModeType',
+    'autoMoveRandom', 'autoMoveAfterUser', 'legitModeType',
     'moveDisplayDelay', 'renderSquarePlayer', 'renderSquareEnemy',
     'renderSquareContested', 'renderSquareSafe', 'renderPiecePlayerCapture',
     'renderPieceEnemyCapture', 'renderOnExternalSite', 'feedbackOnExternalSite',
@@ -464,13 +463,15 @@ let lastPieceSize = null;
 let lastBoardMatrix = null;
 let lastBoardOrientation = null;
 let lastMoveRequestTime = 0;
+let humanTimeSuggestionHost = null;
+let humanTimeSuggestionInterval = null;
+let humanTimeSuggestionVariation = 1;
 let lastAllowedFen = '';
 let lastRejectedFen = '';
 
 let gameState = getGameStateObjTemplate();
 
 let backendTabOpenedOnceAlready = false;
-let matchFirstSuggestionGiven = false;
 let isUserMouseDown = false;
 let modListeners = [];
 let modDrawerListeners = [];
@@ -563,9 +564,7 @@ CommLink.registerListener(`backend_${commLinkInstanceID}`, packet => {
                 return getFen();
             case 'renderVisualsToSite':
                 renderStuffToBoard(packet.data);
-                handleAutoMove(packet.data);
-
-                matchFirstSuggestionGiven = true;
+                renderHumanMoveTimeSuggestion(packet.data);
 
                 return true;
             case 'updateRestartListener':
@@ -755,76 +754,135 @@ function calculateAdaptiveMoveDifficulty(markings, pieceAmount) {
     );
 }
 
-async function makeMove(profile, fenMoveArr, isLegit, humanTiming = {}) {
-    const move = new AutomaticMove({
-        profile,
-        fenMoveArr,
-        isLegit,
-        useHumanTiming: humanTiming.enabled,
-        engineElo: humanTiming.engineElo,
-        moveDifficulty: humanTiming.difficulty,
-        pieceAmount: getPieceAmount(),
-        moveDomCoords: fenCoordArrToDomCoord(fenMoveArr),
-        isPromotion: isPawnPromotion(fenMoveArr),
-        legitModeType: getConfigValue(configKeys.legitModeType, profile),
-        debugModeActivated: debugModeActivated,
-        getRandomOwnPieceDomCoord: getRandomOwnPieceDomCoord,
-        lastPieceSize: lastPieceSize,
-        lastMoveRequestTime: lastMoveRequestTime,
-        boardMatrix: getBoardMatrix(),
-        domain: domain
-    }, e => {
-        // This is ran when the move finished
+function calculateRecommendedThinkTime(engineElo, moveDifficulty) {
+    const elo = clampNumber(Number(engineElo) || 1500, 600, 2600);
+    const difficulty = clampNumber(Number(moveDifficulty) || 0, 0, 1);
+    const skill = (elo - 600) / 2000;
 
-        if(debugModeActivated) {
-            console.warn('Move', fenMoveArr, move.id, 'finished', 'for profile:', profile);
-        }
-    });
+    const routineTime = 550 + (1 - skill) * 2050;
+    const complexityTime = Math.pow(difficulty, 1.35) * (7000 - skill * 2800);
+    const criticalPause = difficulty > 0.72
+        ? 900 + (1 - skill) * 1900 + (difficulty - 0.72) * 3000
+        : 0;
+    const total = (routineTime + complexityTime + criticalPause) * humanTimeSuggestionVariation;
+
+    return Math.round(clampNumber(total, 700, 15000));
 }
 
-function handleAutoMove(markings) {
-    if(!Array.isArray(markings) || !markings.length) {
-        return;
+function getMoveDifficultyLabel(difficulty) {
+    if(difficulty < 0.34) return 'posição simples';
+    if(difficulty < 0.7) return 'dificuldade média';
+    return 'posição difícil';
+}
+
+function getHumanTimeSuggestionElements() {
+    if(humanTimeSuggestionHost?.isConnected) {
+        return humanTimeSuggestionHost.shadowRoot;
     }
+
+    const host = document.createElement('div');
+    host.id = 'acas-human-time-suggestion';
+    host.style.cssText = [
+        'position:fixed', 'right:18px', 'bottom:18px', 'z-index:2147483647',
+        'pointer-events:none', 'display:none'
+    ].join(';');
+
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `
+        <style>
+            .card { min-width: 190px; padding: 12px 14px; border: 1px solid rgba(255,255,255,.16);
+                border-radius: 12px; background: rgba(17,20,27,.94); color: #f5f7fb;
+                box-shadow: 0 10px 30px rgba(0,0,0,.32); font: 600 13px/1.25 system-ui,sans-serif;
+                backdrop-filter: blur(8px); }
+            .title { color: #9ba7b8; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+            .time { margin-top: 3px; color: #73d6a2; font-size: 27px; font-variant-numeric: tabular-nums; }
+            .status { margin-top: 2px; font-size: 12px; }
+            .details { margin-top: 5px; color: #9ba7b8; font-size: 10px; font-weight: 600; }
+            .ready .time { color: #8fdaff; }
+        </style>
+        <div class="card">
+            <div class="title">TEMPO RECOMENDADO</div>
+            <div class="time"></div>
+            <div class="status"></div>
+            <div class="details"></div>
+        </div>`;
+
+    (document.body || document.documentElement).appendChild(host);
+    humanTimeSuggestionHost = host;
+
+    return shadow;
+}
+
+function clearHumanMoveTimeSuggestion() {
+    if(humanTimeSuggestionInterval) {
+        clearInterval(humanTimeSuggestionInterval);
+        humanTimeSuggestionInterval = null;
+    }
+
+    if(humanTimeSuggestionHost) {
+        humanTimeSuggestionHost.style.display = 'none';
+    }
+}
+
+function renderHumanMoveTimeSuggestion(markings) {
+    if(!Array.isArray(markings) || !markings.length) return;
 
     const filteredMarkings = markings.filter(marking =>
-        marking?.category === 'move' &&
-        !marking.isOpponent &&
-        !marking.isFuture
+        marking?.category === 'move' && !marking.isOpponent && !marking.isFuture
     );
 
-    if(!filteredMarkings.length) {
+    if(!filteredMarkings.length) return;
+
+    const profileID = filteredMarkings[0]?.profileID;
+    const enabled = getConfigValue(configKeys.humanMoveTimeSuggestion, profileID);
+
+    if(enabled !== true && enabled !== 'true') {
+        clearHumanMoveTimeSuggestion();
         return;
     }
 
-    const profileID = filteredMarkings[0]?.profileID;
-    const isAutoMove = getConfigValue(configKeys.autoMove, profileID);
+    const engineElo = Number(getConfigValue(configKeys.engineElo, profileID)) || 1500;
+    const difficulty = calculateAdaptiveMoveDifficulty(filteredMarkings, getPieceAmount());
+    const totalMs = calculateRecommendedThinkTime(engineElo, difficulty);
+    const deadline = (lastMoveRequestTime || Date.now()) + totalMs;
+    const shadow = getHumanTimeSuggestionElements();
+    const card = shadow.querySelector('.card');
+    const timeElem = shadow.querySelector('.time');
+    const statusElem = shadow.querySelector('.status');
+    const detailsElem = shadow.querySelector('.details');
+    const formatSeconds = ms => `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
 
-    const isAutoMoveAfterUser = getConfigValue(configKeys.autoMoveAfterUser, profileID);
+    humanTimeSuggestionHost.style.display = 'block';
+    timeElem.textContent = formatSeconds(totalMs);
+    detailsElem.textContent = `ELO ${engineElo} • ${getMoveDifficultyLabel(difficulty)}`;
 
-    if(isAutoMove && (!isAutoMoveAfterUser || matchFirstSuggestionGiven)) {
-        AutomaticMove.stopAll();
+    const updateCountdown = () => {
+        const stillEnabled = getConfigValue(configKeys.humanMoveTimeSuggestion, profileID);
 
-        const isLegit = getConfigValue(configKeys.autoMoveLegit, profileID);
-        const isRandom = getConfigValue(configKeys.autoMoveRandom, profileID);
-        const useHumanTiming = getConfigValue(configKeys.autoMoveHumanTiming, profileID);
-        const pieceAmount = getPieceAmount();
+        if(stillEnabled !== true && stillEnabled !== 'true') {
+            clearHumanMoveTimeSuggestion();
+            return;
+        }
 
-        const marking = isRandom
-            ? filteredMarkings[
-                Math.floor(
-                    Math.random() * Math.random() * filteredMarkings.length
-                )
-            ]
-            : filteredMarkings[0];
+        const remainingMs = Math.max(0, deadline - Date.now());
+        const ready = remainingMs === 0;
 
-        const move = [marking.from, marking.to];
+        card.classList.toggle('ready', ready);
+        statusElem.textContent = ready
+            ? 'Tempo atingido — jogue quando quiser'
+            : `Aguarde mais ${formatSeconds(remainingMs)}`;
 
-        makeMove(profileID, move, isLegit, {
-            enabled: useHumanTiming === true || useHumanTiming === 'true',
-            engineElo: Number(getConfigValue(configKeys.engineElo, profileID)) || 1500,
-            difficulty: calculateAdaptiveMoveDifficulty(filteredMarkings, pieceAmount)
-        });
+        if(ready && humanTimeSuggestionInterval) {
+            clearInterval(humanTimeSuggestionInterval);
+            humanTimeSuggestionInterval = null;
+        }
+    };
+
+    if(humanTimeSuggestionInterval) clearInterval(humanTimeSuggestionInterval);
+    updateCountdown();
+
+    if(Date.now() < deadline) {
+        humanTimeSuggestionInterval = setInterval(updateCountdown, 100);
     }
 }
 
@@ -2776,6 +2834,8 @@ async function processBoardPosition() {
 
     const didBoardOrientationChange = await checkBoardOrientationChange();
 
+    clearHumanMoveTimeSuggestion();
+    humanTimeSuggestionVariation = 0.85 + Math.random() * 0.3;
     lastMoveRequestTime = Date.now();
     modLastEnteredSquare.squareFen = null;
 
@@ -2792,7 +2852,6 @@ async function processBoardPosition() {
     ) {
         resetStoredMatchVariables();
 
-        matchFirstSuggestionGiven = false;
         gameState.turn = getBoardOrientation();
         instanceVars.turn.set(commLinkInstanceID, gameState.turn);
 

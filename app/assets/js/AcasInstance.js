@@ -17,7 +17,7 @@ const logEngineMessages = false,
       debugLogsEnabled = false;
 
 const configKeys = Object.freeze([
-    'engineElo', 'engineEnemyElo', 'moveSuggestionAmount', 'arrowOpacity',
+    'engineElo', 'engineEnemyElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion', 'arrowOpacity',
     'displayMovesOnExternalSite', 'showMoveGhost', 'showOpponentMoveGuess',
     'showOpponentMoveGuessConstantly', 'onlyShowTopMoves', 'maxMovetime',
     'chessVariant', 'chessEngine', 'useExternalChessEngine', 'lc0Weight',
@@ -26,7 +26,7 @@ const configKeys = Object.freeze([
     'ttsVoiceSpeed', 'chessEngineProfile', 'primaryArrowColorHex',
     'secondaryArrowColorHex', 'opponentArrowColorHex', 'bookMoveColorHex',
     'bookMoveOpacity', 'reverseSide', 'engineEnabled', 'autoMove', 'autoMoveLegit',
-    'autoMoveRandom', 'autoMoveAfterUser', 'autoMoveHumanTiming', 'legitModeType', 'enableEveryPieceEvals',
+    'autoMoveRandom', 'autoMoveAfterUser', 'legitModeType', 'enableEveryPieceEvals',
     'moveDisplayDelay', 'renderSquarePlayer', 'renderSquareEnemy',
     'renderSquareContested', 'renderSquareSafe', 'renderPiecePlayerCapture',
     'renderPieceEnemyCapture', 'renderOnExternalSite', 'feedbackOnExternalSite',

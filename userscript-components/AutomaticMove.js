@@ -1,5 +1,5 @@
 /* AutomaticMove.js
- - Version: 1.2
+ - Version: 1.1
  - Author: Haka
  - Description: A.C.A.S component
  - GitHub: https://github.com/Psyyke/A.C.A.S/
@@ -27,9 +27,6 @@ class AutomaticMove {
         this.profile = config.profile;
         this.fenMoveArr = config.fenMoveArr;
         this.isLegit = config.isLegit;
-        this.useHumanTiming = config.useHumanTiming === true;
-        this.engineElo = Number(config.engineElo) || 1500;
-        this.moveDifficulty = Number(config.moveDifficulty) || 0;
         this.pieceAmount = config.pieceAmount;
         this.moveDomCoords = config.moveDomCoords;
         this.isPromotion = config.isPromotion;
@@ -139,9 +136,7 @@ class AutomaticMove {
             this.shouldHesitateTwice = this.isLegit && Math.random() < 0.25;
             this.hesitationTypeOne = this.isLegit && Math.random() < 0.35;
 
-            const legitTotalMoveTime = this.useHumanTiming
-                ? this.calculateHumanMoveTime(this.engineElo, this.moveDifficulty)
-                : this.calculateMoveTime(this.pieceAmount);
+            const legitTotalMoveTime = this.calculateMoveTime(this.pieceAmount);
             const elapsedMoveTime = (Date.now() - this.lastMoveRequestTime); // How long did it take for the engine to calculate the move
             const remainingTime = Math.max(legitTotalMoveTime - elapsedMoveTime, 500);
 
@@ -150,11 +145,6 @@ class AutomaticMove {
             for(const key of Object.keys(delays)) {
                 this[key] = delays[key];
             }
-        } else if(this.useHumanTiming) {
-            const humanTotalMoveTime = this.calculateHumanMoveTime(this.engineElo, this.moveDifficulty);
-            const elapsedMoveTime = Date.now() - this.lastMoveRequestTime;
-
-            this.moveDelay = Math.max(humanTotalMoveTime - elapsedMoveTime, 350);
         }
 
         this.start();
@@ -240,24 +230,6 @@ class AutomaticMove {
         }
 
         return 500;
-    }
-
-    calculateHumanMoveTime(engineElo, moveDifficulty) {
-        const elo = Math.max(600, Math.min(2600, Number(engineElo) || 1500));
-        const difficulty = Math.max(0, Math.min(1, Number(moveDifficulty) || 0));
-        const skill = (elo - 600) / 2000;
-
-        // Lower-rated players take longer on routine positions. Difficult positions
-        // add time for every rating, but stronger players have a smaller penalty.
-        const routineTime = 550 + (1 - skill) * 2050;
-        const complexityTime = Math.pow(difficulty, 1.35) * (7000 - skill * 2800);
-        const criticalPause = difficulty > 0.72
-            ? this.getRandomIntegerBetween(900, Math.round(4200 - skill * 1400))
-            : 0;
-        const naturalVariation = 0.78 + Math.random() * 0.44;
-        const total = (routineTime + complexityTime + criticalPause) * naturalVariation;
-
-        return Math.round(Math.max(350, Math.min(15000, total)));
     }
 
     getRandomIntegerBetween(min, max) {
@@ -444,11 +416,6 @@ class AutomaticMove {
     async start() {
         if(this.isLegit) {
             this.playLegit();
-        } else if(this.useHumanTiming) {
-            await this.delay(this.moveDelay);
-
-            if(this.active)
-                this.finishMove(5, 1111);
         } else {
             this.finishMove(5, 1111);
         }

@@ -259,7 +259,8 @@ export default class Interface {
             moveAsFilledSquares,
             onlySuggestPieces,
             movesOnDemand,
-            displayMovesExternally
+            displayMovesExternally,
+            showHumanTimeSuggestion
         ] = await Promise.all([
             this.AcasInstance.getConfigValue(cfgKeys.arrowOpacity, profile).then(v => v/100),
             this.AcasInstance.getConfigValue(cfgKeys.showOpponentMoveGuess, profile),
@@ -270,7 +271,8 @@ export default class Interface {
             this.AcasInstance.getConfigValue(cfgKeys.moveAsFilledSquares, profile),
             this.AcasInstance.getConfigValue(cfgKeys.onlySuggestPieces, profile),
             this.AcasInstance.getConfigValue(cfgKeys.movesOnDemand, profile),
-            this.AcasInstance.getConfigValue(cfgKeys.displayMovesOnExternalSite, profile)
+            this.AcasInstance.getConfigValue(cfgKeys.displayMovesOnExternalSite, profile),
+            this.AcasInstance.getConfigValue(cfgKeys.humanMoveTimeSuggestion, profile)
         ]);
 
         const markedSquares = [[], []]; // [primary, secondary]
@@ -338,13 +340,21 @@ export default class Interface {
 
             this.AcasInstance.pV[profile].activeGuiMoveMarkings.push({ otherElems: elems });
 
-            if(displayMovesExternally) {
+            if(displayMovesExternally || showHumanTimeSuggestion) {
                 siteMoveShapes.push(...this.buildMoveSiteEntries(mObj, shapes, profile));
             }
         });
 
-        if(displayMovesExternally) {
-            this.AcasInstance.CommLink.commands.renderVisualsToSite(FORMAT_MOVE_OBJ_TO_EXTERNAL_SITE(siteMoveShapes));
+        if(displayMovesExternally || showHumanTimeSuggestion) {
+            const sitePayload = FORMAT_MOVE_OBJ_TO_EXTERNAL_SITE(siteMoveShapes)
+                .map(marking => displayMovesExternally ? marking : {
+                    ...marking,
+                    shapeType: null,
+                    shapeSquare: null,
+                    shapeConfig: null
+                });
+
+            this.AcasInstance.CommLink.commands.renderVisualsToSite(sitePayload);
         }
 
         this.AcasInstance.pV[profile].activeSquareListeners = squareListeners;

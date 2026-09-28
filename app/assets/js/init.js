@@ -1,5 +1,5 @@
 import { createInstance } from './instanceManager.js';
-import { installNotificationElem, hiddenSettingPanel, tosCheckboxElem,
+import { installNotificationElem, tosCheckboxElem,
     tosContinueBtnElem, tosContainerElem } from './gui/elementDeclarations.js';
 import { highlightSettingElem, initGUI } from './gui.js';
 
@@ -119,9 +119,6 @@ function processUrlParams() {
             highlightSettingElem(settingContainer, () => REMOVE_PARAM_FROM_URL('shl'));
         }
     }
-
-    if(urlParams.get('hidden') === 'true')
-        hiddenSettingPanel?.classList.remove('hidden');
 }
 
 function startCommLink() {
