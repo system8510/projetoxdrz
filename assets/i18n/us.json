@@ -114,6 +114,7 @@
         "maxMovetime": ["Max Movetime (ms)", "1000ms is 1 second"],
         "arrowOpacity": ["Move Opacity (1 - 100%)", "Change the opacity of the shown moves"],
         "autoMove": ["Auto Move", "For Chess.com. Use only against bots"],
+        "autoMoveHumanTiming": ["Adaptive Human Timing", "Think longer based on ELO and move difficulty"],
         "autoMoveAfterUser": ["After User", "Start the Auto Move after user move"],
         "autoMoveLegit": ["Legit Mode", "Attempt to make Auto Move more legit"],
         "autoMoveRandom": ["Random Mode", "Play other moves than the best one"],

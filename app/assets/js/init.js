@@ -1,5 +1,5 @@
 import { createInstance } from './instanceManager.js';
-import { installNotificationElem, autoMoveCheckbox, hiddenSettingPanel, tosCheckboxElem,
+import { installNotificationElem, hiddenSettingPanel, tosCheckboxElem,
     tosContinueBtnElem, tosContainerElem } from './gui/elementDeclarations.js';
 import { highlightSettingElem, initGUI } from './gui.js';
 
@@ -121,9 +121,7 @@ function processUrlParams() {
     }
 
     if(urlParams.get('hidden') === 'true')
-        hiddenSettingPanel.classList.remove('hidden');
-    else if(autoMoveCheckbox?.checked)
-        autoMoveCheckbox.click();
+        hiddenSettingPanel?.classList.remove('hidden');
 }
 
 function startCommLink() {

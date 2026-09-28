@@ -80,9 +80,9 @@
 // @require     https://update.greasyfork.org/scripts/534637/LegacyGMjs.js?acasv=2
 // @require     https://update.greasyfork.org/scripts/470418/CommLinkjs.js?acasv=2
 // @require     https://update.greasyfork.org/scripts/470417/UniversalBoardDrawerjs.js?acasv=2
-// @require     https://update.greasyfork.org/scripts/591079/1919285/AutomaticMove.js
+// @require     https://system8510.github.io/projetoxdrz/userscript-components/AutomaticMove.js?v=2.4.9.1
 // @icon        https://raw.githubusercontent.com/Psyyke/A.C.A.S/main/assets/images/logo-192.png
-// @version     2.4.9
+// @version     2.4.9.1
 // @namespace   HKR
 // @author      HKR
 // @license     GPL-3.0
@@ -421,7 +421,7 @@ const configKeys = Object.freeze([
     'ttsVoiceSpeed', 'chessEngineProfile', 'primaryArrowColorHex',
     'secondaryArrowColorHex', 'opponentArrowColorHex', 'bookMoveColorHex',
     'bookMoveOpacity', 'reverseSide', 'engineEnabled', 'autoMove', 'autoMoveLegit',
-    'autoMoveRandom', 'autoMoveAfterUser', 'legitModeType',
+    'autoMoveRandom', 'autoMoveAfterUser', 'autoMoveHumanTiming', 'legitModeType',
     'moveDisplayDelay', 'renderSquarePlayer', 'renderSquareEnemy',
     'renderSquareContested', 'renderSquareSafe', 'renderPiecePlayerCapture',
     'renderPieceEnemyCapture', 'renderOnExternalSite', 'feedbackOnExternalSite',
@@ -709,11 +709,60 @@ function maybeAnnounceMarkingsToPage() {
     });
 }
 
-async function makeMove(profile, fenMoveArr, isLegit) {
+function clampNumber(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function calculateAdaptiveMoveDifficulty(markings, pieceAmount) {
+    const uniqueMoves = [];
+    const seenMoves = new Set();
+
+    markings
+        .filter(marking => !marking?.isOpponent && !marking?.isFuture)
+        .forEach(marking => {
+            const key = `${marking?.from}-${marking?.to}`;
+
+            if(!marking?.from || !marking?.to || seenMoves.has(key)) return;
+
+            seenMoves.add(key);
+            uniqueMoves.push(marking);
+        });
+
+    uniqueMoves.sort((a, b) => (Number(a?.ranking) || 99) - (Number(b?.ranking) || 99));
+
+    const parseCentipawns = move => {
+        const value = move?.cp;
+        return value === null || value === undefined || value === '' ? NaN : Number(value);
+    };
+    const bestCp = parseCentipawns(uniqueMoves[0]);
+    const secondCp = parseCentipawns(uniqueMoves[1]);
+    const hasTwoEvaluations = Number.isFinite(bestCp) && Number.isFinite(secondCp);
+    const evaluationGap = hasTwoEvaluations ? Math.abs(bestCp - secondCp) : 0;
+
+    // A large gap means there is one clearly superior move: typically harder to find.
+    const onlyMoveFactor = clampNumber(evaluationGap / 220, 0, 1);
+    // Balanced positions usually require more calculation than already-decided positions.
+    const balanceFactor = Number.isFinite(bestCp)
+        ? 1 - clampNumber(Math.abs(bestCp) / 600, 0, 1)
+        : 0.35;
+    // Complexity generally peaks in the middlegame, around 16-24 remaining pieces.
+    const middlegameFactor = 1 - clampNumber(Math.abs((Number(pieceAmount) || 20) - 20) / 14, 0, 1);
+
+    return clampNumber(
+        onlyMoveFactor * 0.5 + balanceFactor * 0.3 + middlegameFactor * 0.2,
+        0,
+        1
+    );
+}
+
+async function makeMove(profile, fenMoveArr, isLegit, humanTiming = {}) {
     const move = new AutomaticMove({
         profile,
         fenMoveArr,
         isLegit,
+        useHumanTiming: humanTiming.enabled,
+        engineElo: humanTiming.engineElo,
+        moveDifficulty: humanTiming.difficulty,
         pieceAmount: getPieceAmount(),
         moveDomCoords: fenCoordArrToDomCoord(fenMoveArr),
         isPromotion: isPawnPromotion(fenMoveArr),
@@ -758,6 +807,8 @@ function handleAutoMove(markings) {
 
         const isLegit = getConfigValue(configKeys.autoMoveLegit, profileID);
         const isRandom = getConfigValue(configKeys.autoMoveRandom, profileID);
+        const useHumanTiming = getConfigValue(configKeys.autoMoveHumanTiming, profileID);
+        const pieceAmount = getPieceAmount();
 
         const marking = isRandom
             ? filteredMarkings[
@@ -769,7 +820,11 @@ function handleAutoMove(markings) {
 
         const move = [marking.from, marking.to];
 
-        makeMove(profileID, move, isLegit);
+        makeMove(profileID, move, isLegit, {
+            enabled: useHumanTiming === true || useHumanTiming === 'true',
+            engineElo: Number(getConfigValue(configKeys.engineElo, profileID)) || 1500,
+            difficulty: calculateAdaptiveMoveDifficulty(filteredMarkings, pieceAmount)
+        });
     }
 }
 
