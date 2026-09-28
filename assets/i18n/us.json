@@ -113,6 +113,8 @@
         "moveSuggestionAmount": ["Move suggestions", "How many move suggestions will show up"],
         "humanMoveTimeSuggestion": ["Recommended Thinking Time", "Show a suggested waiting time without moving any piece"],
         "humanMoveTimeControl": ["Game Duration", "Choose the initial clock time"],
+        "humanMovePlayerElo": ["Your ELO", "Used only for the recommended thinking time"],
+        "humanMoveOpponentElo": ["Opponent ELO", "Stronger opponents may require more care"],
         "maxMovetime": ["Max Movetime (ms)", "1000ms is 1 second"],
         "arrowOpacity": ["Move Opacity (1 - 100%)", "Change the opacity of the shown moves"],
         "autoMove": ["Auto Move", "For Chess.com. Use only against bots"],

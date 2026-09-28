@@ -81,7 +81,7 @@
 // @require     https://update.greasyfork.org/scripts/470418/CommLinkjs.js?acasv=2
 // @require     https://update.greasyfork.org/scripts/470417/UniversalBoardDrawerjs.js?acasv=2
 // @icon        https://raw.githubusercontent.com/Psyyke/A.C.A.S/main/assets/images/logo-192.png
-// @version     2.4.9.3
+// @version     2.4.9.4
 // @namespace   HKR
 // @author      HKR
 // @license     GPL-3.0
@@ -412,7 +412,7 @@ const blacklistedURLs = [
 
 const configKeys = Object.freeze([
     'engineElo', 'moveSuggestionAmount', 'humanMoveTimeSuggestion',
-    'humanMoveTimeControl', 'arrowOpacity',
+    'humanMoveTimeControl', 'humanMovePlayerElo', 'humanMoveOpponentElo', 'arrowOpacity',
     'displayMovesOnExternalSite', 'showMoveGhost', 'showOpponentMoveGuess',
     'showOpponentMoveGuessConstantly', 'onlyShowTopMoves', 'maxMovetime',
     'chessVariant', 'chessEngine', 'lc0Weight',
@@ -713,7 +713,7 @@ function clampNumber(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
 
-function calculateAdaptiveMoveDifficulty(markings, pieceAmount) {
+function analyzeMoveDifficulty(markings, pieceAmount) {
     const uniqueMoves = [];
     const seenMoves = new Set();
 
@@ -734,7 +734,8 @@ function calculateAdaptiveMoveDifficulty(markings, pieceAmount) {
         const value = move?.cp;
         return value === null || value === undefined || value === '' ? NaN : Number(value);
     };
-    const bestCp = parseCentipawns(uniqueMoves[0]);
+    const bestMove = uniqueMoves[0];
+    const bestCp = parseCentipawns(bestMove);
     const secondCp = parseCentipawns(uniqueMoves[1]);
     const hasTwoEvaluations = Number.isFinite(bestCp) && Number.isFinite(secondCp);
     const evaluationGap = hasTwoEvaluations ? Math.abs(bestCp - secondCp) : 0;
@@ -748,17 +749,125 @@ function calculateAdaptiveMoveDifficulty(markings, pieceAmount) {
     // Complexity generally peaks in the middlegame, around 16-24 remaining pieces.
     const middlegameFactor = 1 - clampNumber(Math.abs((Number(pieceAmount) || 20) - 20) / 14, 0, 1);
 
-    return clampNumber(
-        onlyMoveFactor * 0.5 + balanceFactor * 0.3 + middlegameFactor * 0.2,
+    const targetPiece = bestMove?.to ? getBoardPiece(bestMove.to) : null;
+    const capturedPieceValue = {
+        p: 1, n: 3, b: 3, r: 5, q: 9, k: 0
+    }[typeof targetPiece === 'string' ? targetPiece.toLowerCase() : ''] || 0;
+    const previousMoveTarget = gameState?.boardChanges?.to;
+    const isRecapture = capturedPieceValue > 0 && previousMoveTarget === bestMove?.to;
+    const fromFile = bestMove?.from?.charCodeAt(0);
+    const toFile = bestMove?.to?.charCodeAt(0);
+    const movingPiece = bestMove?.from ? getBoardPiece(bestMove.from) : null;
+    const isCastling = typeof movingPiece === 'string' &&
+        movingPiece.toLowerCase() === 'k' && Math.abs(fromFile - toFile) === 2;
+    const hasSeveralGoodMoves = hasTwoEvaluations && evaluationGap <= 35;
+    const clearlyWinning = Number.isFinite(bestCp) && Math.abs(bestCp) >= 650;
+    const openingMove = Number(gameState?.fullmoveNumber) <= 8;
+    const obviousness = clampNumber(
+        (capturedPieceValue >= 5 ? 0.3 : capturedPieceValue >= 3 ? 0.16 : 0) +
+        (isRecapture ? 0.28 : 0) +
+        (isCastling ? 0.22 : 0) +
+        (hasSeveralGoodMoves ? 0.2 : 0) +
+        (clearlyWinning ? 0.15 : 0) +
+        (openingMove && onlyMoveFactor < 0.45 ? 0.12 : 0),
         0,
-        1
+        0.75
     );
+    const rawDifficulty = onlyMoveFactor * 0.5 + balanceFactor * 0.3 + middlegameFactor * 0.2;
+    const difficulty = clampNumber(rawDifficulty * (1 - obviousness * 0.48), 0, 1);
+
+    return {
+        difficulty,
+        obviousness,
+        evaluationGap,
+        isCapture: capturedPieceValue > 0,
+        isRecapture,
+        isCastling
+    };
 }
 
-function calculateRecommendedThinkTime(engineElo, moveDifficulty, timeControlMinutes = 10) {
-    const elo = clampNumber(Number(engineElo) || 1500, 600, 2600);
+function parseClockSeconds(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    const clockMatch = normalized.match(/(?:^|\D)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:[.,](\d))?(?:\D|$)/);
+
+    if(clockMatch) {
+        const first = Number(clockMatch[1]);
+        const second = Number(clockMatch[2]);
+        const hasHours = clockMatch[3] !== undefined;
+        const third = hasHours ? Number(clockMatch[3]) : 0;
+        const fraction = Number(clockMatch[4] || 0) / 10;
+
+        return hasHours
+            ? first * 3600 + second * 60 + third + fraction
+            : first * 60 + second + fraction;
+    }
+
+    if(/^\d{1,2}[.,]\d$/.test(normalized)) {
+        return Number(normalized.replace(',', '.'));
+    }
+
+    return null;
+}
+
+function findClockSeconds(side) {
+    const isPlayer = side === 'player';
+    const selectors = isPlayer
+        ? [
+            '.clock-bottom .clock-time-monospace', '.clock-component.clock-bottom', '.clock-bottom',
+            '.player-component.player-bottom .clock-component', '.player-bottom .clock-component',
+            '.rclock-bottom .time', '.rclock-bottom', '[data-cy="clock-bottom"]',
+            '[data-testid="clock-bottom"]', '#myclock'
+        ]
+        : [
+            '.clock-top .clock-time-monospace', '.clock-component.clock-top', '.clock-top',
+            '.player-component.player-top .clock-component', '.player-top .clock-component',
+            '.rclock-top .time', '.rclock-top', '[data-cy="clock-top"]',
+            '[data-testid="clock-top"]', '#oppclock'
+        ];
+
+    for(const selector of selectors) {
+        for(const elem of document.querySelectorAll(selector)) {
+            const seconds = parseClockSeconds(elem.textContent);
+            if(seconds !== null) return seconds;
+        }
+    }
+
+    const candidates = [...document.querySelectorAll(
+        '[class*="clock"], [class*="timer"], [data-testid*="clock"]'
+    )]
+        .map(elem => ({
+            seconds: parseClockSeconds(elem.textContent),
+            top: elem.getBoundingClientRect?.().top ?? 0,
+            visible: elem.getClientRects?.().length > 0
+        }))
+        .filter(item => item.visible && item.seconds !== null);
+
+    if(!candidates.length) return null;
+
+    candidates.sort((a, b) => a.top - b.top);
+    return (isPlayer ? candidates.at(-1) : candidates[0]).seconds;
+}
+
+function getLiveClockState() {
+    return {
+        playerSeconds: findClockSeconds('player'),
+        opponentSeconds: findClockSeconds('opponent')
+    };
+}
+
+function calculateRecommendedThinkTime({
+    playerElo,
+    opponentElo,
+    moveDifficulty,
+    timeControlMinutes = 10,
+    playerClockSeconds = null,
+    opponentClockSeconds = null,
+    moveNumber = 1
+}) {
+    const elo = clampNumber(Number(playerElo) || 1500, 400, 3000);
+    const enemyElo = clampNumber(Number(opponentElo) || 1500, 400, 3000);
     const difficulty = clampNumber(Number(moveDifficulty) || 0, 0, 1);
-    const skill = (elo - 600) / 2000;
+    const skill = (elo - 400) / 2600;
 
     const timingPresets = {
         3:  { min: 500,  fast: 550,  slow: 2200,  complexity: 7000,  critical: 4000,  max: 12000 },
@@ -772,15 +881,49 @@ function calculateRecommendedThinkTime(engineElo, moveDifficulty, timeControlMin
     const complexityTime = Math.pow(difficulty, 1.55) * preset.complexity * (1 - skill * 0.25);
     const criticality = clampNumber((difficulty - 0.7) / 0.3, 0, 1);
     const criticalPause = Math.pow(criticality, 1.15) * preset.critical * (1 - skill * 0.2);
-    const total = (routineTime + complexityTime + criticalPause) * humanTimeSuggestionVariation;
+    const eloDifference = clampNumber((enemyElo - elo) / 1000, -1, 1);
+    const opponentCareFactor = 1 + eloDifference * 0.12;
+    const normalizedMoveNumber = Number(moveNumber) || 1;
+    const phaseFactor = normalizedMoveNumber <= 8
+        ? 0.78 + difficulty * 0.22
+        : normalizedMoveNumber <= 32
+            ? 1.05
+            : 0.9 + difficulty * 0.12;
+    let total = (routineTime + complexityTime + criticalPause) *
+        opponentCareFactor * phaseFactor * humanTimeSuggestionVariation;
 
-    return Math.round(clampNumber(total, preset.min, preset.max));
+    if(Number.isFinite(playerClockSeconds)) {
+        const initialSeconds = Number(timeControlMinutes) * 60;
+        const remainingSeconds = Math.max(0, playerClockSeconds);
+        const expectedMovesLeft = clampNumber(46 - normalizedMoveNumber, 8, 32);
+        const reserveSeconds = Math.min(initialSeconds * 0.08, 60);
+        const usableSeconds = Math.max(0, remainingSeconds - reserveSeconds);
+        const perMoveBudgetMs = (usableSeconds / expectedMovesLeft) * 1000;
+        let clockCapMs = perMoveBudgetMs * (0.72 + difficulty * 2.05);
+
+        if(remainingSeconds <= 10) {
+            clockCapMs = Math.max(300, remainingSeconds * 180);
+        } else if(remainingSeconds <= 30) {
+            clockCapMs = Math.max(700, remainingSeconds * 150);
+        } else if(remainingSeconds <= 60) {
+            clockCapMs = Math.max(1200, remainingSeconds * 120);
+        }
+
+        if(Number.isFinite(opponentClockSeconds) && opponentClockSeconds < remainingSeconds * 0.35) {
+            total *= 0.9;
+        }
+
+        total = Math.min(total, clockCapMs, Math.max(300, remainingSeconds * 220));
+    }
+
+    return Math.round(clampNumber(total, 300, preset.max));
 }
 
 function getMoveDifficultyLabel(difficulty) {
-    if(difficulty < 0.34) return 'posição simples';
-    if(difficulty < 0.7) return 'dificuldade média';
-    return 'posição difícil';
+    if(difficulty < 0.3) return 'jogada óbvia';
+    if(difficulty < 0.58) return 'jogada normal';
+    if(difficulty < 0.78) return 'posição complexa';
+    return 'posição crítica';
 }
 
 function getHumanTimeSuggestionElements() {
@@ -849,10 +992,20 @@ function renderHumanMoveTimeSuggestion(markings) {
         return;
     }
 
-    const engineElo = Number(getConfigValue(configKeys.engineElo, profileID)) || 1500;
     const timeControlMinutes = Number(getConfigValue(configKeys.humanMoveTimeControl, profileID)) || 10;
-    const difficulty = calculateAdaptiveMoveDifficulty(filteredMarkings, getPieceAmount());
-    const totalMs = calculateRecommendedThinkTime(engineElo, difficulty, timeControlMinutes);
+    const playerElo = Number(getConfigValue(configKeys.humanMovePlayerElo, profileID)) || 1500;
+    const opponentElo = Number(getConfigValue(configKeys.humanMoveOpponentElo, profileID)) || 1500;
+    const moveAnalysis = analyzeMoveDifficulty(filteredMarkings, getPieceAmount());
+    const clockState = getLiveClockState();
+    const totalMs = calculateRecommendedThinkTime({
+        playerElo,
+        opponentElo,
+        moveDifficulty: moveAnalysis.difficulty,
+        timeControlMinutes,
+        playerClockSeconds: clockState.playerSeconds,
+        opponentClockSeconds: clockState.opponentSeconds,
+        moveNumber: gameState?.fullmoveNumber
+    });
     const deadline = (lastMoveRequestTime || Date.now()) + totalMs;
     const shadow = getHumanTimeSuggestionElements();
     const card = shadow.querySelector('.card');
@@ -860,10 +1013,18 @@ function renderHumanMoveTimeSuggestion(markings) {
     const statusElem = shadow.querySelector('.status');
     const detailsElem = shadow.querySelector('.details');
     const formatSeconds = ms => `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+    const formatClock = seconds => {
+        const minutes = Math.floor(seconds / 60);
+        const remainder = Math.floor(seconds % 60).toString().padStart(2, '0');
+        return `${minutes}:${remainder}`;
+    };
+    const clockText = Number.isFinite(clockState.playerSeconds)
+        ? `relógio ${formatClock(clockState.playerSeconds)}`
+        : `${timeControlMinutes} min`;
 
     humanTimeSuggestionHost.style.display = 'block';
     timeElem.textContent = formatSeconds(totalMs);
-    detailsElem.textContent = `${timeControlMinutes} min • ELO ${engineElo} • ${getMoveDifficultyLabel(difficulty)}`;
+    detailsElem.textContent = `${clockText} • ELO ${playerElo}×${opponentElo} • ${getMoveDifficultyLabel(moveAnalysis.difficulty)}`;
 
     const updateCountdown = () => {
         const stillEnabled = getConfigValue(configKeys.humanMoveTimeSuggestion, profileID);
